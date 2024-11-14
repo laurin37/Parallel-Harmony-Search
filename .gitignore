@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+
+# HPC Outputs
+*sh.o*
+*sh.e*
