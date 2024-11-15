@@ -6,27 +6,17 @@
 #include <string>
 #include <stdexcept>
 #include <functional>
+#include <map>
+
+#define LOG
 
 // Random Number Generator setup
 std::random_device rd;
 std::mt19937 gen(rd());
 
-// Generalized Objective Function: Accepts a vector of inputs
-// Example objective functions: modify or add as needed
-double rosenbrock(const std::vector<double>& vars) {
-    double sum = 0.0;
-    for (size_t i = 0; i < vars.size() - 1; ++i) {
-        sum += 100 * std::pow(vars[i + 1] - vars[i] * vars[i], 2) + std::pow(1 - vars[i], 2);
-    }
-    return sum;
-}
-
-double michalewicz(const std::vector<double>& vars) {
-    double sum = 0.0;
-    for (size_t i = 0; i < vars.size(); ++i) {
-        sum += -sin(vars[i]) * std::pow(sin((i + 1) * vars[i] * vars[i] / M_PI), 20);
-    }
-    return sum;
+// Clamps a value within the range [min, max]
+double clamp(double value, double min, double max) {
+    return (value < min) ? min : (value > max ? max : value);
 }
 
 // Generates a random double within the specified range [min, max]
@@ -35,67 +25,110 @@ double randomDouble(double min, double max) {
     return dis(gen);
 }
 
-// Clamps a value within the range [min, max]
-double clamp(double value, double min, double max) {
-    return (value < min) ? min : (value > max ? max : value);
-}
-
-// Adjusts pitch of a given value within a specified bandwidth and clamps it within [0, π]
-double pitchAdjust(double value, double bandwidth) {
-    value += randomDouble(-bandwidth, bandwidth);
-    return clamp(value, 0.0, M_PI);
-}
-
-// Generates a new random solution vector within [0, π] for each variable
-std::vector<double> generateRandomSolution(int dimensions) {
+// Generates a random solution vector of specified dimensions within [min, max] for each variable
+std::vector<double> generateRandomSolution(int dimensions, double min, double max) {
     std::vector<double> solution(dimensions);
     for (int i = 0; i < dimensions; ++i) {
-        solution[i] = randomDouble(0, M_PI);
+        solution[i] = randomDouble(min, max);
     }
     return solution;
 }
 
-// Harmony Search Algorithm (generalized for any number of variables)
-double harmonySearch(int memorySize, double harmonyMemoryConsideringRate, double pitchAdjustingRate, 
-                     double bandwidth, int maxIterations, int dimensions, 
-                     const std::function<double(const std::vector<double>&)>& objectiveFunction, 
-                     int logInterval = 1000) {
-    // Initialize Harmony Memory (HM)
-    std::vector<std::vector<double>> harmonyMemory(memorySize); // stores solution vectors
-    std::vector<double> harmonyMemoryFitness(memorySize); // stores the fitness of each solution
+// Adjusts the pitch of a solution vector within a specified bandwidth
+void pitchAdjust(std::vector<double>& solution, double bandwidth, double min, double max) {
+    for (double& value : solution) {
+        value += randomDouble(-bandwidth, bandwidth);
+        value = clamp(value, min, max);
+    }
+}
 
-    // Populate initial harmony memory with random solutions within the range [0, π]
+// Objective Function Interface
+class ObjectiveFunction {
+    public:
+        std::string name;                             // Name of the function
+        int dimensions;                               // Number of parameters (variables)
+        double min;                                   // Minimum bound for parameters
+        double max;                                   // Maximum bound for parameters
+        std::function<double(const std::vector<double>&)> func; // Function definition
+        std::vector<double> realParameters;           // Real solution (for comparison)
+        double realValue;                             // Real value of the function (for comparison)
+};
+
+// Example Objective Functions
+ObjectiveFunction createRosenbrock(int dimensions) {
+    ObjectiveFunction rosenbrock{
+        "Rosenbrock",
+        dimensions,
+        -5.0,
+        10.0,
+        [](const std::vector<double>& vars) {
+            double sum = 0.0;
+            for (size_t i = 0; i < vars.size() - 1; ++i) {
+                sum += 100 * std::pow(vars[i + 1] - vars[i] * vars[i], 2) + std::pow(1 - vars[i], 2);
+            }
+            return sum;
+        },
+        std::vector<double>(dimensions, 1.0), // Real solution is (1, 1, ..., 1)
+        0.0                                   // Real value at the solution is 0
+    };
+    return rosenbrock;
+}
+
+ObjectiveFunction createMichalewicz(int dimensions) {
+    ObjectiveFunction michalewicz{
+        "Michalewicz",
+        dimensions,
+        0.0,
+        M_PI,
+        [](const std::vector<double>& vars) {
+            double sum = 0.0;
+            for (size_t i = 0; i < vars.size(); ++i) {
+                sum += -sin(vars[i]) * std::pow(sin((i + 1) * vars[i] * vars[i] / M_PI), 20);
+            }
+            return sum;
+        },
+        {2.20319, 1.57049}, // Real solution for 2D case
+        -1.801              // Real value at the solution
+    };
+    return michalewicz;
+}
+
+// Harmony Search Algorithm
+double harmonySearch(const ObjectiveFunction& objFunc, int memorySize, double harmonyMemoryConsideringRate,
+                     double pitchAdjustingRate, double bandwidth, int maxIterations, int logInterval = 1000) {
+    auto start = std::chrono::high_resolution_clock::now();                    
+
+    // Initialize Harmony Memory (HM)
+    std::vector<std::vector<double>> harmonyMemory(memorySize);
+    std::vector<double> harmonyMemoryFitness(memorySize);
+
+    // Populate initial harmony memory
     for (int i = 0; i < memorySize; ++i) {
-        harmonyMemory[i] = generateRandomSolution(dimensions);
-        harmonyMemoryFitness[i] = objectiveFunction(harmonyMemory[i]);
+        harmonyMemory[i] = generateRandomSolution(objFunc.dimensions, objFunc.min, objFunc.max);
+        harmonyMemoryFitness[i] = objFunc.func(harmonyMemory[i]);
     }
 
-    // Initialize best solution with the first solution in harmony memory
+    // Track the best solution
     std::vector<double> bestSolution = harmonyMemory[0];
     double bestFitness = harmonyMemoryFitness[0];
 
     // Main optimization loop
     for (int iter = 0; iter < maxIterations; ++iter) {
-        std::vector<double> newSolution(dimensions);
+        std::vector<double> newSolution = generateRandomSolution(objFunc.dimensions, objFunc.min, objFunc.max);
 
         // Harmony Memory Considering Rate (HMCR)
         if (randomDouble(0, 1) < harmonyMemoryConsideringRate) {
-            int randIndex = rand() % memorySize; // Select a random solution from harmony memory
+            int randIndex = rand() % memorySize;
             newSolution = harmonyMemory[randIndex];
 
             // Pitch Adjusting Rate (PAR)
-            for (int i = 0; i < dimensions; ++i) {
-                if (randomDouble(0, 1) < pitchAdjustingRate) {
-                    newSolution[i] = pitchAdjust(newSolution[i], bandwidth);
-                }
+            if (randomDouble(0, 1) < pitchAdjustingRate) {
+                pitchAdjust(newSolution, bandwidth, objFunc.min, objFunc.max);
             }
-        } else {
-            // Randomization: Generate a new completely random solution within [0, π]
-            newSolution = generateRandomSolution(dimensions);
         }
 
         // Evaluate the new solution
-        double newFitness = objectiveFunction(newSolution);
+        double newFitness = objFunc.func(newSolution);
 
         // Replace the worst harmony if the new one is better
         int worstIndex = 0;
@@ -104,7 +137,7 @@ double harmonySearch(int memorySize, double harmonyMemoryConsideringRate, double
                 worstIndex = i;
             }
         }
-        
+
         if (newFitness < harmonyMemoryFitness[worstIndex]) {
             harmonyMemory[worstIndex] = newSolution;
             harmonyMemoryFitness[worstIndex] = newFitness;
@@ -115,16 +148,30 @@ double harmonySearch(int memorySize, double harmonyMemoryConsideringRate, double
             bestSolution = newSolution;
             bestFitness = newFitness;
         }
-
-        // Log the best fitness at specified intervals
+        #ifdef LOG
+        // Log progress
         if (iter % logInterval == 0) {
             std::cout << "Iteration " << iter << " - Best fitness so far: " << bestFitness << std::endl;
         }
+        #endif
     }
-    
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    std::cout << "Execution time: " << duration.count() << " seconds\n";
+
+    // Print final results
+    std::cout << "Objective Function: " << objFunc.name << "\n";
     std::cout << "Best solution found: ";
     for (const auto& var : bestSolution) std::cout << var << " ";
-    std::cout << "\nObjective function value at best solution: " << bestFitness << "\n";
+    std::cout << "\nFunction value at best solution: " << bestFitness << "\n";
+
+    // Print real solution (if available)
+    if (!objFunc.realParameters.empty()) {
+        std::cout << "Real solution: ";
+        for (const auto& param : objFunc.realParameters) std::cout << param << " ";
+        std::cout << "\nReal function value: " << objFunc.realValue << "\n";
+    }
     return bestFitness;
 }
 
@@ -167,22 +214,17 @@ int main(int argc, char *argv[]) {
     std::cout << "dimensions = " << dimensions << std::endl;
     std::cout << "seed = " << seed << std::endl;
 
-    // Select and run objective functions with variable dimensions
-    std::cout << "\nRunning with Michalewicz function\n";
-    auto start = std::chrono::high_resolution_clock::now();
-    harmonySearch(memorySize, harmonyMemoryConsideringRate, pitchAdjustingRate, bandwidth, maxIterations, dimensions, michalewicz, logInterval);
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> duration = end - start;
-    std::cout << "Execution time: " << duration.count() << " seconds\n";
+   // Create a vector of objective functions
+    std::vector<ObjectiveFunction> objectiveFunctions = {
+        createRosenbrock(10),  // 5D Rosenbrock
+        //createMichalewicz(2) // 2D Michalewicz
+    };
 
-    std::cout << "\nRunning with Rosenbrock function\n";
-    start = std::chrono::high_resolution_clock::now();
-    harmonySearch(memorySize, harmonyMemoryConsideringRate, pitchAdjustingRate, bandwidth, maxIterations, dimensions, rosenbrock, logInterval);
-    end = std::chrono::high_resolution_clock::now();
-    duration = end - start;
-    std::cout << "Execution time: " << duration.count() << " seconds\n";
-
-    std::cout << "#####################################################################\n";
+    // Iterate through each objective function and run Harmony Search
+    for (const auto& objectiveFunction : objectiveFunctions) {
+        std::cout << "\nOptimizing " << objectiveFunction.name << " Function\n";
+        harmonySearch(objectiveFunction, memorySize, harmonyMemoryConsideringRate, pitchAdjustingRate, bandwidth, maxIterations, int(maxIterations / 10));
+    }
 
     return 0;
 }
