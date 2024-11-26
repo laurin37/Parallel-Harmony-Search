@@ -8,7 +8,7 @@
 #include <functional>
 #include <map>
 
-#define LOG
+#define LOGGING
 
 // Random Number Generator setup
 std::random_device rd;
@@ -148,7 +148,7 @@ double harmonySearch(const ObjectiveFunction& objFunc, int memorySize, double ha
             bestSolution = newSolution;
             bestFitness = newFitness;
         }
-        #ifdef LOG
+        #ifdef LOGGING
         // Log progress
         if (iter % logInterval == 0) {
             std::cout << "Iteration " << iter << " - Best fitness so far: " << bestFitness << std::endl;
@@ -182,9 +182,7 @@ int main(int argc, char *argv[]) {
     double harmonyMemoryConsideringRate = 0.9;
     double pitchAdjustingRate = 0.3;
     double bandwidth = 0.01;
-    int logInterval = 1000;
-    int dimensions = 2; // Default number of dimensions
-    int seed = rd(); // default to a random seed
+    int seed = rd();
 
     // Read parameters from command line if provided
     try {
@@ -193,9 +191,7 @@ int main(int argc, char *argv[]) {
         if (argc > 3) harmonyMemoryConsideringRate = std::stod(argv[3]);
         if (argc > 4) pitchAdjustingRate = std::stod(argv[4]);
         if (argc > 5) bandwidth = std::stod(argv[5]);
-        if (argc > 6) logInterval = std::stoi(argv[6]);
-        if (argc > 7) dimensions = std::stoi(argv[7]);
-        if (argc > 8) seed = std::stoi(argv[8]);
+        if (argc > 6) seed = std::stoi(argv[6]);
     } catch (const std::invalid_argument& e) {
         std::cerr << "Invalid argument: please enter numeric values for all parameters." << std::endl;
         return 1;
@@ -210,13 +206,11 @@ int main(int argc, char *argv[]) {
     std::cout << "harmony Memory Considering Rate = " << harmonyMemoryConsideringRate << std::endl;
     std::cout << "pitch Adjusting Rate = " << pitchAdjustingRate << std::endl;
     std::cout << "band width = " << bandwidth << std::endl;
-    std::cout << "log Interval = " << logInterval << std::endl;
-    std::cout << "dimensions = " << dimensions << std::endl;
     std::cout << "seed = " << seed << std::endl;
 
    // Create a vector of objective functions
     std::vector<ObjectiveFunction> objectiveFunctions = {
-        createRosenbrock(10),  // 5D Rosenbrock
+        createRosenbrock(10),  // 10D Rosenbrock
         //createMichalewicz(2) // 2D Michalewicz
     };
 
