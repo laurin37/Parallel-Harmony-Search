@@ -13,12 +13,12 @@ mpic++ -std=c++11 -g -Wall harmonySearchParallelMPI.cpp -o mpi.out
 
 # compile OpenMP
 ```
-g++ -std=c++11 -o openmp.out harmonySearchParallelOpenMP.cpp
+g++ -std=c++11 -g -Wall -o openmp.out harmonySearchParallelOpenMP.cpp
 ```
 
 # compile Hybrid
 ```
-g++ -std=c++11 -o hybrid.out harmonySearchParallelHybrid.cpp
+mpic++ -std=c++11 -g -Wall harmonySearchParallelHybrid.cpp -o hybrid.out
 ```
 
 
