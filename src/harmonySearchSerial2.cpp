@@ -8,7 +8,9 @@
 #include <cmath>
 #include <limits>
 #include <chrono>
-#include <cstdlib> // For command-line argument parsing
+#include <fstream>
+#include <cstdlib>
+#include <sstream>
 
 // Clamps a value within the range [min, max]
 double clamp(double value, double min, double max) 
@@ -23,7 +25,7 @@ typedef std::function<double(const Solution&)> ObjectiveFunction;
 // Random number generator
 class RandomGenerator {
 public:
-    RandomGenerator(int seed = 42) : gen(seed) {}
+    RandomGenerator(unsigned int seed) : gen(seed) {}
 
     double getDouble(double min, double max) {
         std::uniform_real_distribution<> dis(min, max);
@@ -36,7 +38,6 @@ public:
     }
 
 private:
-    std::random_device rd;
     std::mt19937 gen;
 };
 
@@ -44,9 +45,9 @@ private:
 class HarmonySearch {
 public:
     HarmonySearch(int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
-                  const ObjectiveFunction& objFunc, const Solution& lowerBounds, const Solution& upperBounds)
+                  const ObjectiveFunction& objFunc, const Solution& lowerBounds, const Solution& upperBounds, unsigned int seed)
         : dimensions(dimensions), hms(hms), hmcr(hmcr), par(par), bw(bw), maxIter(maxIter),
-          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng() {}
+          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed) {}
 
     Solution optimize() {
         auto start = std::chrono::high_resolution_clock::now();        
@@ -63,10 +64,12 @@ public:
 
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> duration = end - start;
-        std::cout << "Execution time: " << duration.count() << " seconds\n";
-
+        executionTime = duration.count();
         return bestSolution;
     }
+
+    double getExecutionTime() const { return executionTime; }
+    double getBestFitness() const { return bestFitness; }
 
 private:
     int dimensions;
@@ -86,6 +89,7 @@ private:
     double bestFitness = std::numeric_limits<double>::infinity();
     double worstFitness = -std::numeric_limits<double>::infinity();
     int worstIndex = 0;
+    double executionTime = 0.0;
 
     void initializeHarmonyMemory() {
         harmonyMemory.resize(hms);
@@ -148,37 +152,39 @@ private:
     }
 };
 
+// Helper function to append or create a CSV file
+void writeResultsToCSV(const std::string& filename, int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
+                       double executionTime, int numCores, unsigned int seed, double bestFitness, const std::string& executionType) {
+    std::ofstream file;
+    bool fileExists = std::ifstream(filename).good();
+
+    file.open(filename, std::ios::app);
+
+    if (!fileExists) {
+        file << "Dimensions,HMS,HMCR,PAR,BW,MaxIter,ExecutionTime(s),Cores,Seed,BestFitness,ExecutionType\n";
+    }
+
+    file << dimensions << "," << hms << "," << hmcr << "," << par << "," << bw << "," << maxIter << "," 
+         << executionTime << "," << numCores << "," << seed << "," << bestFitness << "," << executionType << "\n";
+
+    file.close();
+}
+
 // Example usage
 int main(int argc, char* argv[]) {
-    std::cout << "\n==================== Run Start ====================\n";
-
-    // Harmony Search default parameters
-    int hms = 10000;
-    double hmcr = 0.9; //0.7 - 0.95
-    double par = 0.3; //0.1 - 0.5
-    double bw = 0.01;
-    int maxIter = 1000000;
-
-    // Read parameters from command line if provided
-    try 
-    {
-        if (argc > 1) hms = std::stoi(argv[1]);
-        if (argc > 2) hmcr = std::stod(argv[2]);
-        if (argc > 3) par = std::stod(argv[3]);
-        if (argc > 4) bw = std::stod(argv[4]);
-        if (argc > 5) maxIter = std::stoi(argv[5]);
-    } catch (const std::invalid_argument& e) 
-    {
-        std::cerr << "Invalid argument: please enter numeric values for all parameters." << std::endl;
+    if (argc != 8) {
+        std::cerr << "Usage: " << argv[0] << " <hms> <hmcr> <par> <bw> <maxIter> <dimensions> <seed>\n";
         return 1;
     }
 
-    // Print parameter values
-    std::cout << "memory Size = " << hms << std::endl;
-    std::cout << "max Iterations = " << maxIter << std::endl;
-    std::cout << "harmony Memory Considering Rate = " << hmcr << std::endl;
-    std::cout << "pitch Adjusting Rate = " << par << std::endl;
-    std::cout << "band width = " << bw << std::endl;
+    // Parse command-line arguments
+    int hms = std::stoi(argv[1]);
+    double hmcr = std::stod(argv[2]);
+    double par = std::stod(argv[3]);
+    double bw = std::stod(argv[4]);
+    int maxIter = std::stoi(argv[5]);
+    int dimensions = std::stoi(argv[6]);
+    unsigned int seed = std::stoul(argv[7]);
 
     // Define the Rosenbrock function
     ObjectiveFunction rosenbrock = [](const Solution& sol) {
@@ -192,19 +198,28 @@ int main(int argc, char* argv[]) {
     };
 
     // Problem parameters
-    int dimensions = 5; // Define the dimension size
     Solution lowerBounds(dimensions, -5.0);
     Solution upperBounds(dimensions, 5.0);
 
-    HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds);
+    HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
     Solution best = hs.optimize();
 
-    std::cout << "Best solution found:" << std::endl;
+    // Output formatting
+    std::cout << "\n==================== Run Start ====================\n";
+    std::cout << "Dimensions: " << dimensions << "\n";
+    std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";
+    std::cout << "Max Iterations: " << maxIter << ", Seed: " << seed << "\n";
+    std::cout << "Execution Time: " << hs.getExecutionTime() << " seconds\n";
+    std::cout << "Best fitness: " << hs.getBestFitness() << std::endl;
+    std::cout << "Best solution found: ";
     for (double x : best) {
         std::cout << x << " ";
     }
-    std::cout << "\nBest fitness: " << rosenbrock(best) << std::endl;
-    std::cout << "==================== Run End ======================\n";
+    std::cout << "\n==================== Run End ======================" << std::endl;
+
+    // Write results to CSV
+    writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
+                      1, seed, hs.getBestFitness(), "Sequential");
 
     return 0;
 }
