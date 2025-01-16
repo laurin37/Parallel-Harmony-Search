@@ -13,7 +13,13 @@
 #include <sstream>
 #include <unordered_map>
 
-// Clamps a value within the range [min, max]
+/**
+ * Clamps a value within the range [min, max].
+ * @param value The value to clamp.
+ * @param min The minimum allowed value.
+ * @param max The maximum allowed value.
+ * @return The clamped value.
+ */
 double clamp(double value, double min, double max) 
 {
     return (value < min) ? min : (value > max ? max : value);
@@ -23,15 +29,27 @@ double clamp(double value, double min, double max)
 typedef std::vector<double> Solution;
 typedef std::function<double(const Solution&)> ObjectiveFunction;
 
-// Abstract base class for objective functions
+/**
+ * Abstract base class for defining objective functions.
+ * Any specific objective function must implement the evaluate method.
+ */
 class ObjectiveFunctionBase 
 {
 public:
     virtual ~ObjectiveFunctionBase() = default;
+
+    /**
+     * Evaluates the objective function for a given solution.
+     * @param sol The solution to evaluate.
+     * @return The computed fitness value.
+     */
     virtual double evaluate(const Solution& sol) const = 0;
 };
 
-// Rosenbrock function implementation
+/**
+ * Implementation of the Rosenbrock function as an objective function.
+ * The Rosenbrock function is commonly used to evaluate optimization algorithms.
+ */
 class RosenbrockFunction : public ObjectiveFunctionBase 
 {
 public:
@@ -48,18 +66,26 @@ public:
     }
 };
 
-// Random number generator
+/**
+ * Generates random numbers within specified ranges.
+ */
 class RandomGenerator 
 {
 public:
     RandomGenerator(unsigned int seed) : gen(seed) {}
 
+    /**
+     * Generates a random double in the range [min, max].
+     */
     double getDouble(double min, double max) 
     {
         std::uniform_real_distribution<> dis(min, max);
         return dis(gen);
     }
 
+    /**
+     * Generates a random integer in the range [min, max].
+     */
     int getInt(int min, int max) 
     {
         std::uniform_int_distribution<> dis(min, max);
@@ -70,15 +96,40 @@ private:
     std::mt19937 gen;
 };
 
-// Harmony Search Algorithm class
+/**
+ * Implements the Harmony Search algorithm.
+ * This class manages the optimization process using Harmony Search.
+ */
 class HarmonySearch 
 {
 public:
     HarmonySearch(int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
                   const ObjectiveFunctionBase& objFunc, const Solution& lowerBounds, const Solution& upperBounds, unsigned int seed)
         : dimensions(dimensions), hms(hms), hmcr(hmcr), par(par), bw(bw), maxIter(maxIter),
-          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed) {}
+          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed) 
+    {
+        if (hms <= 0)
+        {
+            throw std::invalid_argument("Harmony memory size (hms) must be greater than 0.");
+        }
+        if (hmcr < 0.0 || hmcr > 1.0)
+        {
+            throw std::invalid_argument("Harmony memory consideration rate (hmcr) must be in the range [0, 1].");
+        }
+        if (par < 0.0 || par > 1.0)
+        {
+            throw std::invalid_argument("Pitch adjustment rate (par) must be in the range [0, 1].");
+        }
+        if (bw <= 0.0)
+        {
+            throw std::invalid_argument("Bandwidth (bw) must be greater than 0.");
+        }
+    }
 
+    /**
+     * Optimizes the objective function using Harmony Search.
+     * @return The best solution found.
+     */
     Solution optimize() 
     {
         auto start = std::chrono::high_resolution_clock::now();        
@@ -124,6 +175,9 @@ private:
     int worstIndex = 0;
     double executionTime = 0.0;
 
+    /**
+     * Initializes the Harmony Memory with random solutions and their fitness values.
+     */
     void initializeHarmonyMemory() 
     {
         harmonyMemory.resize(hms);
@@ -148,6 +202,10 @@ private:
         }
     }
 
+    /**
+     * Generates a random solution within the specified bounds.
+     * @return A random solution.
+     */
     Solution randomSolution() 
     {
         Solution solution(dimensions);
@@ -158,6 +216,10 @@ private:
         return solution;
     }
 
+    /**
+     * Generates a new harmony based on the Harmony Memory and randomness.
+     * @return The new harmony (solution).
+     */
     Solution generateNewHarmony() 
     {
         Solution newHarmony(dimensions);
@@ -173,7 +235,8 @@ private:
                     newHarmony[d] += rng.getDouble(-bw, bw);
                     newHarmony[d] = clamp(newHarmony[d], lowerBounds[d], upperBounds[d]);
                 }
-            } else 
+            } 
+            else 
             {
                 newHarmony[d] = rng.getDouble(lowerBounds[d], upperBounds[d]);
             }
@@ -182,6 +245,11 @@ private:
         return newHarmony;
     }
 
+    /**
+     * Replaces the worst harmony in the Harmony Memory if the new harmony is better.
+     * @param newHarmony The new harmony to insert.
+     * @param newFitness The fitness of the new harmony.
+     */
     void replaceWorstHarmony(const Solution& newHarmony, double newFitness) 
     {
         harmonyMemory[worstIndex] = newHarmony;
@@ -198,9 +266,25 @@ private:
     }
 };
 
-// Helper function to append or create a CSV file
+/**
+ * Writes optimization results to a CSV file.
+ * If the file does not exist, a header is created.
+ * @param filename Name of the CSV file.
+ * @param dimensions Number of dimensions in the problem.
+ * @param hms Harmony memory size.
+ * @param hmcr Harmony memory consideration rate.
+ * @param par Pitch adjustment rate.
+ * @param bw Bandwidth for pitch adjustment.
+ * @param maxIter Maximum iterations.
+ * @param executionTime Execution time of the optimization.
+ * @param numCores Number of cores used.
+ * @param seed Random seed used for reproducibility.
+ * @param bestFitness The best fitness value found.
+ * @param executionType The execution type (e.g., Sequential).
+ */
 void writeResultsToCSV(const std::string& filename, int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
-                       double executionTime, int numCores, unsigned int seed, double bestFitness, const std::string& executionType) {
+                       double executionTime, int numCores, unsigned int seed, double bestFitness, const std::string& executionType) 
+{
     std::ofstream file;
     bool fileExists = std::ifstream(filename).good();
 
@@ -217,7 +301,6 @@ void writeResultsToCSV(const std::string& filename, int dimensions, int hms, dou
     file.close();
 }
 
-// Example usage
 int main(int argc, char* argv[]) 
 {
     if (argc != 8) 
@@ -226,7 +309,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Parse command-line arguments
     int hms = std::stoi(argv[1]);
     double hmcr = std::stod(argv[2]);
     double par = std::stod(argv[3]);
@@ -235,28 +317,31 @@ int main(int argc, char* argv[])
     int dimensions = std::stoi(argv[6]);
     unsigned int seed = std::stoul(argv[7]);
 
-    // Define the Rosenbrock function
-    RosenbrockFunction rosenbrock;
+    try 
+    {
+        RosenbrockFunction rosenbrock;
+        Solution lowerBounds(dimensions, -5.0);
+        Solution upperBounds(dimensions, 5.0);
 
-    // Problem parameters
-    Solution lowerBounds(dimensions, -5.0);
-    Solution upperBounds(dimensions, 5.0);
+        HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
+        Solution best = hs.optimize();
 
-    HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
-    Solution best = hs.optimize();
+        std::cout << "\n==================== Run Start ====================\n";
+        std::cout << "Dimensions: " << dimensions << "\n";
+        std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";
+        std::cout << "Max Iterations: " << maxIter << ", Seed: " << seed << "\n";
+        std::cout << "Execution Time: " << hs.getExecutionTime() << " seconds\n";
+        std::cout << "Best fitness: " << hs.getBestFitness() << std::endl;
+        std::cout << "==================== Run End ======================" << std::endl;
 
-    // Output formatting
-    std::cout << "\n==================== Run Start ====================\n";
-    std::cout << "Dimensions: " << dimensions << "\n";
-    std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";
-    std::cout << "Max Iterations: " << maxIter << ", Seed: " << seed << "\n";
-    std::cout << "Execution Time: " << hs.getExecutionTime() << " seconds\n";
-    std::cout << "Best fitness: " << hs.getBestFitness() << std::endl;
-    std::cout << "==================== Run End ======================" << std::endl;
-
-    // Write results to CSV
-    writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
-                      1, seed, hs.getBestFitness(), "Sequential");
+        writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
+                          1, seed, hs.getBestFitness(), "Sequential");
+    } 
+    catch (const std::invalid_argument& e) 
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
 
     return 0;
 }
