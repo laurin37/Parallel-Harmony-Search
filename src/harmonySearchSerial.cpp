@@ -69,7 +69,7 @@ ObjectiveFunction createRosenbrock(int dimensions)
         "Rosenbrock",
         dimensions,
         -5.0,
-        10.0,
+        5.0,
         [](const std::vector<double>& vars) 
         {
             double sum = 0.0;
@@ -207,7 +207,7 @@ int main(int argc, char *argv[])
     double harmonyMemoryConsideringRate = 0.9;
     double pitchAdjustingRate = 0.3;
     double bandwidth = 0.01;
-    int seed = rd();
+    int seed = 1;
 
     // Read parameters from command line if provided
     try 
@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
    // Create a vector of objective functions
     std::vector<ObjectiveFunction> objectiveFunctions = 
     {
-        createRosenbrock(10),  // 10D Rosenbrock
+        createRosenbrock(5),  // 10D Rosenbrock
         //createMichalewicz(2) // 2D Michalewicz
     };
 

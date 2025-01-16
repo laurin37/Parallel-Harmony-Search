@@ -67,7 +67,7 @@ ObjectiveFunction createRosenbrock(int dimensions)
         "Rosenbrock",
         dimensions,
         -5.0,
-        10.0,
+        5.0,
         [](const std::vector<double>& vars) 
         {
             double sum = 0.0;
