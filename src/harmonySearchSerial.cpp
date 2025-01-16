@@ -327,6 +327,7 @@ int main(int argc, char* argv[])
         Solution best = hs.optimize();
 
         std::cout << "\n==================== Run Start ====================\n";
+        std::cout << "Cores: Serial" << "\n";
         std::cout << "Dimensions: " << dimensions << "\n";
         std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";
         std::cout << "Max Iterations: " << maxIter << ", Seed: " << seed << "\n";
