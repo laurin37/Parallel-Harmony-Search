@@ -29,5 +29,5 @@ qsub harmonySearch.sh
 
 # analyze run
 ```
-python analyze_hs.py ../data/harmony_search_results.csv --max_iter 100000000 --dim 35 --output my_analysis
+python analyze_hs.py
 ```
