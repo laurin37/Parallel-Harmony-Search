@@ -237,7 +237,7 @@ int main(int argc, char* argv[])
     gen.seed(seed);
 
     // Define the objective function
-    auto rosenbrock = createRosenbrock(5);
+    auto rosenbrock = createRosenbrock(8);
 
     // Run Harmony Search
     harmonySearch(rosenbrock, memorySize, harmonyMemoryConsideringRate, pitchAdjustingRate, bandwidth, maxIterations, int(maxIterations / 10), rank, size);

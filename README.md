@@ -26,3 +26,8 @@ mpic++ -std=c++11 -g -Wall harmonySearchParallelHybrid.cpp -o hybrid.out
 ```
 qsub harmonySearch.sh
 ```
+
+# analyze run
+```
+python analyze_hs.py results.csv --max_iter 100000000 --dim 35 --output my_analysis
+```

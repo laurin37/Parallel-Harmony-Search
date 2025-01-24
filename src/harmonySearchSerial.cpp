@@ -335,7 +335,7 @@ int main(int argc, char* argv[])
         std::cout << "Best fitness: " << hs.getBestFitness() << std::endl;
         std::cout << "==================== Run End ======================" << std::endl;
 
-        writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
+        writeResultsToCSV("Parallel-Harmony-Search/data/harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
                           1, seed, hs.getBestFitness(), "Sequential");
     } 
     catch (const std::invalid_argument& e) 
