@@ -1,246 +1,409 @@
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include <random>
-#include <chrono>
-#include <cmath>
-#include <string>
-#include <stdexcept>
 #include <functional>
+#include <cmath>
+#include <limits>
+#include <chrono>
+#include <fstream>
+#include <cstdlib>
+#include <sstream>
+#include <unordered_map>
 #include <mpi.h>
 
-// Random Number Generator setup
-std::random_device rd;
-std::mt19937 gen(rd());
-
-// Clamps a value within the range [min, max]
-double clamp(double value, double min, double max) 
-{
+double clamp(double value, double min, double max) {
     return (value < min) ? min : (value > max ? max : value);
 }
 
-// Generates a random double within the specified range [min, max]
-double randomDouble(double min, double max) 
-{
-    std::uniform_real_distribution<> dis(min, max);
-    return dis(gen);
-}
+typedef std::vector<double> Solution;
+typedef std::function<double(const Solution&)> ObjectiveFunction;
 
-// Generates a random solution vector of specified dimensions within [min, max] for each variable
-std::vector<double> generateRandomSolution(int dimensions, double min, double max) 
-{
-    std::vector<double> solution(dimensions);
-    for (int i = 0; i < dimensions; ++i) 
-    {
-        solution[i] = randomDouble(min, max);
-    }
-    return solution;
-}
-
-// Adjusts the pitch of a solution vector within a specified bandwidth
-void pitchAdjust(std::vector<double>& solution, double bandwidth, double min, double max) 
-{
-    for (double& value : solution) 
-    {
-        value += randomDouble(-bandwidth, bandwidth);
-        value = clamp(value, min, max);
-    }
-}
-
-// Objective Function Interface
-class ObjectiveFunction 
-{
-    public:
-        std::string name;                             // Name of the function
-        int dimensions;                               // Number of parameters (variables)
-        double min;                                   // Minimum bound for parameters
-        double max;                                   // Maximum bound for parameters
-        std::function<double(const std::vector<double>&)> func; // Function definition
-        std::vector<double> realParameters;           // Real solution (for comparison)
-        double realValue;                             // Real value of the function (for comparison)
+class ObjectiveFunctionBase {
+public:
+    virtual ~ObjectiveFunctionBase() = default;
+    virtual double evaluate(const Solution& sol) const = 0;
 };
 
-// Example Objective Functions
-ObjectiveFunction createRosenbrock(int dimensions) 
-{
-    ObjectiveFunction rosenbrock
-    {
-        "Rosenbrock",
-        dimensions,
-        -5.0,
-        5.0,
-        [](const std::vector<double>& vars) 
-        {
-            double sum = 0.0;
-            for (size_t i = 0; i < vars.size() - 1; ++i) 
-            {
-                sum += 100 * std::pow(vars[i + 1] - vars[i] * vars[i], 2) + std::pow(1 - vars[i], 2);
-            }
-            return sum;
-        },
-        std::vector<double>(dimensions, 1.0), // Real solution is (1, 1, ..., 1)
-        0.0                                   // Real value at the solution is 0
-    };
-    return rosenbrock;
-}
+class RosenbrockFunction : public ObjectiveFunctionBase {
+public:
+    double evaluate(const Solution& sol) const override {
+        double sum = 0.0;
+        for (size_t i = 0; i < sol.size() - 1; ++i) {
+            double term1 = (sol[i + 1] - sol[i] * sol[i]);
+            double term2 = (1.0 - sol[i]);
+            sum += 100.0 * term1 * term1 + term2 * term2;
+        }
+        return sum;
+    }
+};
 
-// Harmony Search Algorithm
-double harmonySearch(const ObjectiveFunction& objFunc, int memorySize, double harmonyMemoryConsideringRate,
-                     double pitchAdjustingRate, double bandwidth, int maxIterations, int logInterval, 
-                     int rank, int size) 
-{
-    auto start = std::chrono::high_resolution_clock::now();                    
-
-    // Determine chunk size for each MPI process
-    int chunkSize = memorySize / size;
-    //int startIdx = rank * chunkSize;
-    //int endIdx = (rank == size - 1) ? memorySize : startIdx + chunkSize;
-
-    // Local memory for each process
-    std::vector<std::vector<double>> localMemory(chunkSize);
-    std::vector<double> localFitness(chunkSize);
-
-    // Populate local harmony memory
-    for (int i = 0; i < chunkSize; ++i) 
-    {
-        localMemory[i] = generateRandomSolution(objFunc.dimensions, objFunc.min, objFunc.max);
-        localFitness[i] = objFunc.func(localMemory[i]);
+class RandomGenerator {
+public:
+    RandomGenerator(unsigned int seed) : gen(seed) {}
+    
+    double getDouble(double min, double max) {
+        std::uniform_real_distribution<> dis(min, max);
+        return dis(gen);
     }
 
-    // Track the best solution locally
-    double localBestFitness = localFitness[0];
-    std::vector<double> localBestSolution = localMemory[0];
-    for (int i = 1; i < chunkSize; ++i) 
-    {
-        if (localFitness[i] < localBestFitness) 
-        {
-            localBestFitness = localFitness[i];
-            localBestSolution = localMemory[i];
+    int getInt(int min, int max) {
+        std::uniform_int_distribution<> dis(min, max);
+        return dis(gen);
+    }
+
+private:
+    std::mt19937 gen;
+};
+
+class HarmonySearch {
+public:
+    HarmonySearch(int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
+                  const ObjectiveFunctionBase& objFunc, const Solution& lowerBounds, const Solution& upperBounds, 
+                  unsigned int seed, int rank, int numProcs)
+        : dimensions(dimensions), hms(hms), hmcr(hmcr), par(par), bw(bw), maxIter(maxIter),
+          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed),
+          rank(rank), numProcs(numProcs), BATCH_SIZE(1000 * numProcs)  // Dynamic batch size
+    { 
+        if (hms <= 0) throw std::invalid_argument("Harmony memory size (hms) must be greater than 0.");
+        if (hmcr < 0.0 || hmcr > 1.0) throw std::invalid_argument("HMCR must be in [0, 1].");
+        if (par < 0.0 || par > 1.0) throw std::invalid_argument("PAR must be in [0, 1].");
+        if (bw <= 0.0) throw std::invalid_argument("Bandwidth (bw) must be greater than 0.");
+    }
+
+    Solution optimize();
+    double getExecutionTime() const { return executionTime; }
+    double getBestFitness() const { return bestFitness; }
+
+private:
+    int dimensions;
+    int hms;
+    double hmcr;
+    double par;
+    double bw;
+    int maxIter;
+    const ObjectiveFunctionBase& objectiveFunction;
+    Solution lowerBounds;
+    Solution upperBounds;
+    RandomGenerator rng;
+
+    std::vector<Solution> harmonyMemory;
+    std::vector<double> fitness;
+    Solution bestSolution;
+    double bestFitness = std::numeric_limits<double>::infinity();
+    double worstFitness = -std::numeric_limits<double>::infinity();
+    int worstIndex = 0;
+    double executionTime = 0.0;
+
+    int rank;
+    int numProcs;
+    const int BATCH_SIZE;
+
+    Solution randomSolution() {
+        Solution solution(dimensions);
+        for (int d = 0; d < dimensions; ++d) {
+            solution[d] = rng.getDouble(lowerBounds[d], upperBounds[d]);
+        }
+        return solution;
+    }
+
+    Solution generateNewHarmony() {
+        Solution newHarmony(dimensions);
+        for (int d = 0; d < dimensions; ++d) {
+            if (rng.getDouble(0.0, 1.0) < hmcr) {
+                newHarmony[d] = harmonyMemory[rng.getInt(0, hms - 1)][d];
+                if (rng.getDouble(0.0, 1.0) < par) {
+                    newHarmony[d] += rng.getDouble(-bw, bw);
+                    newHarmony[d] = clamp(newHarmony[d], lowerBounds[d], upperBounds[d]);
+                }
+            } else {
+                newHarmony[d] = rng.getDouble(lowerBounds[d], upperBounds[d]);
+            }
+        }
+        return newHarmony;
+    }
+
+    void replaceWorstHarmony(const Solution& newHarmony, double newFitness) {
+        harmonyMemory[worstIndex] = newHarmony;
+        fitness[worstIndex] = newFitness;
+        worstIndex = std::distance(fitness.begin(), std::max_element(fitness.begin(), fitness.end()));
+        worstFitness = fitness[worstIndex];
+        if (newFitness < bestFitness) {
+            bestFitness = newFitness;
+            bestSolution = newHarmony;
         }
     }
 
-    // Main optimization loop
-    for (int iter = 0; iter < maxIterations; ++iter) 
-    {
-        std::vector<double> newSolution = generateRandomSolution(objFunc.dimensions, objFunc.min, objFunc.max);
+    void initializeHarmonyMemory();
+    void recomputeWorstAndBest();
+    void processReceivedHarmonies(const std::vector<double>& allData, size_t totalElements);
+};
 
-        // Harmony Memory Considering Rate (HMCR)
-        if (randomDouble(0, 1) < harmonyMemoryConsideringRate) 
-        {
-            int randIndex = rand() % chunkSize;
-            newSolution = localMemory[randIndex];
-
-            // Pitch Adjusting Rate (PAR)
-            if (randomDouble(0, 1) < pitchAdjustingRate) 
-            {
-                pitchAdjust(newSolution, bandwidth, objFunc.min, objFunc.max);
+void HarmonySearch::initializeHarmonyMemory() {
+    if (rank == 0) {
+        harmonyMemory.resize(hms);
+        fitness.resize(hms);
+        for (int i = 0; i < hms; ++i) {
+            harmonyMemory[i] = randomSolution();
+            fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]);
+            if (fitness[i] < bestFitness) {
+                bestFitness = fitness[i];
+                bestSolution = harmonyMemory[i];
             }
-        }
-
-        // Evaluate the new solution
-        double newFitness = objFunc.func(newSolution);
-
-        // Replace the worst harmony locally if the new one is better
-        int worstIndex = 0;
-        for (int i = 1; i < chunkSize; ++i) {
-            if (localFitness[i] > localFitness[worstIndex]) 
-            {
+            if (fitness[i] > worstFitness) {
+                worstFitness = fitness[i];
                 worstIndex = i;
             }
         }
+    }
 
-        if (newFitness < localFitness[worstIndex]) 
-        {
-            localMemory[worstIndex] = newSolution;
-            localFitness[worstIndex] = newFitness;
+    if (numProcs > 1) {
+        MPI_Bcast(&hms, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        if (rank != 0) {
+            harmonyMemory.resize(hms);
+            fitness.resize(hms);
         }
 
-        // Update the best solution found locally
-        if (newFitness < localBestFitness) 
-        {
-            localBestFitness = newFitness;
-            localBestSolution = newSolution;
+        std::vector<double> hmBuffer(hms * dimensions);
+        if (rank == 0) {
+            for (int i = 0; i < hms; ++i) {
+                std::copy(harmonyMemory[i].begin(), harmonyMemory[i].end(), 
+                         hmBuffer.begin() + i * dimensions);
+            }
         }
+        MPI_Bcast(hmBuffer.data(), hms * dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(fitness.data(), hms, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-        // Synchronize global best solution across processes every few iterations
-        if (iter % logInterval == 0) 
-        {
-            double globalBestFitness;
-            MPI_Allreduce(&localBestFitness, &globalBestFitness, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-
-            // Log progress (rank 0 only)
-            if (rank == 0) 
-            {
-                std::cout << "Iteration " << iter << " - Best fitness so far: " << globalBestFitness << std::endl;
+        if (rank != 0) {
+            for (int i = 0; i < hms; ++i) {
+                harmonyMemory[i] = Solution(hmBuffer.begin() + i * dimensions, 
+                                          hmBuffer.begin() + (i+1)*dimensions);
             }
         }
     }
-
-    // Gather best solution from all processes
-    double globalBestFitness;
-    MPI_Allreduce(&localBestFitness, &globalBestFitness, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-
-    // Broadcast the global best solution
-    std::vector<double> globalBestSolution = localBestSolution;
-    MPI_Bcast(globalBestSolution.data(), objFunc.dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    // Print results (rank 0 only)
-    if (rank == 0) 
-    {
-        std::cout << "Final Best Fitness: " << globalBestFitness << "\nBest Solution: ";
-        for (const auto& val : globalBestSolution) std::cout << val << " ";
-        std::cout << std::endl;
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> duration = end - start;
-    if (rank == 0) 
-    {
-        std::cout << "Execution time: " << duration.count() << " seconds\n";
-    }
-
-    return globalBestFitness;
+    recomputeWorstAndBest();
 }
 
-int main(int argc, char* argv[]) 
-{
-    MPI_Init(&argc, &argv);
+void HarmonySearch::recomputeWorstAndBest() {
+    worstIndex = std::distance(fitness.begin(), std::max_element(fitness.begin(), fitness.end()));
+    worstFitness = fitness[worstIndex];
+    auto bestIt = std::min_element(fitness.begin(), fitness.end());
+    bestFitness = *bestIt;
+    bestSolution = harmonyMemory[std::distance(fitness.begin(), bestIt)];
+}
 
-    int rank, size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+void HarmonySearch::processReceivedHarmonies(const std::vector<double>& allData, size_t totalElements) {
+    std::vector<std::pair<double, Solution>> candidates;
+    size_t pos = 0;
+    
+    while (pos < totalElements) {
+        double fitnessVal = allData[pos++];
+        Solution harmony(allData.begin() + pos, allData.begin() + pos + dimensions);
+        pos += dimensions;
+        candidates.emplace_back(fitnessVal, std::move(harmony));
+    }
 
-    // Harmony Search Parameters
-    int memorySize = 1000, maxIterations = 100000;
-    double harmonyMemoryConsideringRate = 0.9, pitchAdjustingRate = 0.3, bandwidth = 0.01;
-    int seed = rd();
+    std::sort(candidates.begin(), candidates.end(),
+        [](const std::pair<double, Solution>& a, const std::pair<double, Solution>& b) {
+            return a.first < b.first;
+        });
 
-    // Read parameters from command line
-    try 
-    {
-        if (argc > 1) memorySize = std::stoi(argv[1]);
-        if (argc > 2) maxIterations = std::stoi(argv[2]);
-        if (argc > 3) harmonyMemoryConsideringRate = std::stod(argv[3]);
-        if (argc > 4) pitchAdjustingRate = std::stod(argv[4]);
-        if (argc > 5) bandwidth = std::stod(argv[5]);
-        if (argc > 6) seed = std::stoi(argv[6]);
-    } catch (const std::invalid_argument& e) 
-    {
-        if (rank == 0) 
-        {
-            std::cerr << "Invalid argument: ensure all parameters are numeric." << std::endl;
+    // Replace worst harmonies in bulk
+    int replaceCount = std::min(static_cast<int>(candidates.size()), hms);
+    for (int i = 0; i < replaceCount; ++i) {
+        int targetIndex = hms - 1 - i;
+        if (candidates[i].first < fitness[targetIndex]) {
+            harmonyMemory[targetIndex] = candidates[i].second;
+            fitness[targetIndex] = candidates[i].first;
         }
+    }
+    recomputeWorstAndBest();
+}
+
+Solution HarmonySearch::optimize() {
+    auto start = std::chrono::high_resolution_clock::now();
+    initializeHarmonyMemory();
+
+    if (numProcs == 1) {
+        for (int iter = 0; iter < maxIter; ++iter) {
+            Solution newHarmony = generateNewHarmony();
+            double newFitness = objectiveFunction.evaluate(newHarmony);
+            if (newFitness < worstFitness) {
+                replaceWorstHarmony(newHarmony, newFitness);
+                recomputeWorstAndBest();
+            }
+        }
+    } else {
+        int fullBatches = maxIter / BATCH_SIZE;
+        int remainingIterations = maxIter % BATCH_SIZE;
+
+        for (int batch = 0; batch < fullBatches; ++batch) {
+            std::vector<std::pair<double, Solution>> localBest;
+
+            // Generate batch with early filtering
+            for (int i = 0; i < BATCH_SIZE; ++i) {
+                Solution newHarmony = generateNewHarmony();
+                double newFitness = objectiveFunction.evaluate(newHarmony);
+                if (newFitness < worstFitness * 0.95) {
+                    localBest.emplace_back(newFitness, newHarmony);
+                }
+            }
+
+            // Prepare send buffer
+            std::vector<double> sendBuffer;
+            for (const auto& elem : localBest) {
+                sendBuffer.push_back(elem.first);
+                const Solution& harmony = elem.second;
+                sendBuffer.insert(sendBuffer.end(), harmony.begin(), harmony.end());
+            }
+
+            // Gather data sizes
+            int sendCount = localBest.size();
+            std::vector<int> recvCounts(numProcs);
+            MPI_Allgather(&sendCount, 1, MPI_INT, recvCounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+            // Convert counts to doubles (each element is dimensions+1 doubles)
+            std::vector<int> recvCountsDoubles(numProcs);
+            for (int i = 0; i < numProcs; ++i) {
+                recvCountsDoubles[i] = recvCounts[i] * (dimensions + 1);
+            }
+
+            // Calculate displacements and total elements
+            std::vector<int> displs(numProcs);
+            int totalElements = 0;
+            for (int i = 0; i < numProcs; ++i) {
+                displs[i] = totalElements;
+                totalElements += recvCountsDoubles[i];
+            }
+
+            // Gather all data
+            std::vector<double> allData(totalElements);
+            MPI_Allgatherv(sendBuffer.data(), sendCount * (dimensions + 1), MPI_DOUBLE,
+                          allData.data(), recvCountsDoubles.data(), displs.data(), 
+                          MPI_DOUBLE, MPI_COMM_WORLD);
+
+            processReceivedHarmonies(allData, totalElements);
+        }
+
+        // Handle remaining iterations
+        if (remainingIterations > 0) {
+            std::vector<std::pair<double, Solution>> localBest;
+            for (int i = 0; i < remainingIterations; ++i) {
+                Solution newHarmony = generateNewHarmony();
+                double newFitness = objectiveFunction.evaluate(newHarmony);
+                if (newFitness < worstFitness * 0.95) {
+                    localBest.emplace_back(newFitness, newHarmony);
+                }
+            }
+
+            // Prepare send buffer
+            std::vector<double> sendBuffer;
+            for (const auto& elem : localBest) {
+                sendBuffer.push_back(elem.first);
+                const Solution& harmony = elem.second;
+                sendBuffer.insert(sendBuffer.end(), harmony.begin(), harmony.end());
+            }
+
+            // Gather data sizes
+            int sendCount = localBest.size();
+            std::vector<int> recvCounts(numProcs);
+            MPI_Allgather(&sendCount, 1, MPI_INT, recvCounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+            // Convert counts to doubles
+            std::vector<int> recvCountsDoubles(numProcs);
+            for (int i = 0; i < numProcs; ++i) {
+                recvCountsDoubles[i] = recvCounts[i] * (dimensions + 1);
+            }
+
+            // Calculate displacements and total elements
+            std::vector<int> displs(numProcs);
+            int totalElements = 0;
+            for (int i = 0; i < numProcs; ++i) {
+                displs[i] = totalElements;
+                totalElements += recvCountsDoubles[i];
+            }
+
+            // Gather all data
+            std::vector<double> allData(totalElements);
+            MPI_Allgatherv(sendBuffer.data(), sendCount * (dimensions + 1), MPI_DOUBLE,
+                          allData.data(), recvCountsDoubles.data(), displs.data(), 
+                          MPI_DOUBLE, MPI_COMM_WORLD);
+
+            processReceivedHarmonies(allData, totalElements);
+        }
+    }
+
+    if (rank == 0) {
+        auto end = std::chrono::high_resolution_clock::now();
+        executionTime = std::chrono::duration<double>(end - start).count();
+    }
+
+    return bestSolution;
+}
+
+void writeResultsToCSV(const std::string& filename, int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
+                       double executionTime, int numCores, unsigned int seed, double bestFitness, const std::string& executionType) 
+{
+    std::ofstream file(filename, std::ios::app);
+    if (!file) return;
+
+    if (!std::ifstream(filename).good()) {
+        file << "Dimensions,HMS,HMCR,PAR,BW,MaxIter,ExecutionTime(s),Cores,Seed,BestFitness,ExecutionType\n";
+    }
+
+    file << dimensions << "," << hms << "," << hmcr << "," << par << "," << bw << "," << maxIter << "," 
+         << executionTime << "," << numCores << "," << seed << "," << bestFitness << "," << executionType << "\n";
+}
+
+int main(int argc, char* argv[]) {
+    MPI_Init(&argc, &argv);
+    int rank, numProcs;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+
+    if (argc != 8) {
+        if (rank == 0) std::cerr << "Usage: " << argv[0] << " <hms> <hmcr> <par> <bw> <maxIter> <dimensions> <seed>\n";
         MPI_Finalize();
         return 1;
     }
 
-    // Set seed for reproducibility
-    gen.seed(seed);
+    try {
+        int hms = std::stoi(argv[1]);
+        double hmcr = std::stod(argv[2]);
+        double par = std::stod(argv[3]);
+        double bw = std::stod(argv[4]);
+        int maxIter = std::stoi(argv[5]);
+        int dimensions = std::stoi(argv[6]);
+        unsigned int originalSeed = std::stoul(argv[7]);
+        unsigned int seed = originalSeed + rank;
 
-    // Define the objective function
-    auto rosenbrock = createRosenbrock(8);
+        maxIter = (maxIter + numProcs - 1) / numProcs;
 
-    // Run Harmony Search
-    harmonySearch(rosenbrock, memorySize, harmonyMemoryConsideringRate, pitchAdjustingRate, bandwidth, maxIterations, int(maxIterations / 10), rank, size);
+        RosenbrockFunction rosenbrock;
+        Solution lowerBounds(dimensions, -5.0);
+        Solution upperBounds(dimensions, 5.0);
+
+        HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed, rank, numProcs);
+        Solution best = hs.optimize();
+
+        if (rank == 0) {
+            std::cout << "\n==================== Run Summary ====================\n"
+                      << "Cores: " << numProcs << "\n"
+                      << "Dimensions: " << dimensions << "\n"
+                      << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n"
+                      << "Max Iterations: " << maxIter * numProcs << "\n"
+                      << "Execution Time: " << hs.getExecutionTime() << " seconds\n"
+                      << "Best fitness: " << hs.getBestFitness() << "\n"
+                      << "=====================================================\n";
+
+            writeResultsToCSV("Parallel-Harmony-Search/data/harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter * numProcs, 
+                              hs.getExecutionTime(), numProcs, originalSeed, hs.getBestFitness(), "MPI");
+        }
+    } catch (const std::exception& e) {
+        if (rank == 0) std::cerr << "Error: " << e.what() << "\n";
+        MPI_Finalize();
+        return 1;
+    }
 
     MPI_Finalize();
     return 0;

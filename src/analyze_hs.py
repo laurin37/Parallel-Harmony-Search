@@ -1,43 +1,37 @@
-
-from __future__ import division  # Must be at the top
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
-import sys
+from typing import Optional, Tuple
 
-def read_and_filter_data(csv_path, target_max_iter, target_dim):
+def read_and_filter_data(csv_path: str, target_max_iter: int, target_dim: int) -> pd.DataFrame:
     """Read data and filter for specified parameters"""
     df = pd.read_csv(csv_path)
     
     # Convert numeric columns
     numeric_cols = ['Dimensions', 'HMS', 'MaxIter', 'ExecutionTime(s)', 
                    'Cores', 'Seed', 'BestFitness']
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
     
-    # Filter for target parameters
-    filtered = df[
+    return df[
         (df['MaxIter'] == target_max_iter) &
         (df['Dimensions'] == target_dim)
     ]
-    
-    return filtered
 
-def plot_parallel_performance(filtered_df, output_filename):
+def plot_parallel_performance(filtered_df: pd.DataFrame, output_filename: str) -> Optional[Tuple[plt.Figure, plt.Axes]]:
     """Generate speedup and efficiency plots from filtered data"""
     # Get baseline (sequential)
     sequential = filtered_df[filtered_df['ExecutionType'] == 'Sequential']
     if sequential.empty:
-        print "Error: No sequential baseline found for these parameters"
-        return
+        print(f"Error: No sequential baseline found")
+        return None
         
     baseline_time = sequential['ExecutionTime(s)'].mean()
     
     # Get MPI results
     mpi_runs = filtered_df[filtered_df['ExecutionType'] == 'MPI']
     if mpi_runs.empty:
-        print "Error: No MPI runs found for these parameters"
-        return
+        print(f"Error: No MPI runs found")
+        return None
     
     # Group by core count and average
     grouped = mpi_runs.groupby('Cores').agg({
@@ -50,31 +44,27 @@ def plot_parallel_performance(filtered_df, output_filename):
     grouped['Efficiency'] = grouped['Speedup'] / grouped['Cores']
     
     # Create figure
-    plt.figure(figsize=(12, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     
     # Speedup plot
-    plt.subplot(1, 2, 1)
-    plt.plot(grouped['Cores'], grouped['Speedup'], 'bo-', label='Measured')
-    plt.plot(grouped['Cores'], grouped['Cores'], 'k--', label='Ideal')
-    plt.xlabel('Number of Cores')
-    plt.ylabel('Speedup')
-    plt.title('Speedup (vs Sequential Baseline)')
-    plt.legend()
-    plt.grid(True)
+    ax1.plot(grouped['Cores'], grouped['Speedup'], 'bo-', label='Measured')
+    ax1.plot(grouped['Cores'], grouped['Cores'], 'k--', label='Ideal')
+    ax1.set(xlabel='Number of Cores', ylabel='Speedup', title='Speedup (vs Sequential Baseline)')
+    ax1.legend()
+    ax1.grid(True)
     
     # Efficiency plot
-    plt.subplot(1, 2, 2)
-    plt.plot(grouped['Cores'], grouped['Efficiency'], 'rs-')
-    plt.xlabel('Number of Cores')
-    plt.ylabel('Efficiency')
-    plt.title('Parallel Efficiency')
-    plt.ylim(0, 1.1)
-    plt.grid(True)
+    ax2.plot(grouped['Cores'], grouped['Efficiency'], 'rs-')
+    ax2.set(xlabel='Number of Cores', ylabel='Efficiency', title='Parallel Efficiency')
+    ax2.set_ylim(0, 1.1)
+    ax2.grid(True)
     
     plt.tight_layout()
-    plt.savefig(output_filename, format='svg')
+    plt.savefig(output_filename, format='svg', bbox_inches='tight')
     plt.close()
-    print "Saved plot to {0}".format(output_filename)
+    
+    print(f"✅ Saved plot to {output_filename}")
+    return fig, (ax1, ax2)
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze parallel performance')
@@ -88,15 +78,13 @@ def main():
     
     args = parser.parse_args()
     
-    # Load and filter data
     df = read_and_filter_data(args.csv_file, args.max_iter, args.dim)
     
     if df.empty:
-        print "No data found for MaxIter={0}, Dimensions={1}".format(args.max_iter, args.dim)
+        print(f"⚠️ No data for MaxIter={args.max_iter}, Dimensions={args.dim}")
         return
     
-    # Generate plot
-    output_filename = "{0}_iter{1}_dim{2}.svg".format(args.output, args.max_iter, args.dim)
+    output_filename = f"{args.output}_iter{args.max_iter}_dim{args.dim}.svg"
     plot_parallel_performance(df, output_filename)
 
 if __name__ == '__main__':
