@@ -68,7 +68,7 @@ def plot_parallel_performance(filtered_df: pd.DataFrame, output_filename: str) -
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze parallel performance')
-    parser.add_argument('csv_file', help='Path to results CSV')
+    parser.add_argument('csv_file', help='../../harmony_search_results.csv')
     parser.add_argument('--max_iter', type=int, required=True, 
                        help='Target MaxIter value')
     parser.add_argument('--dim', type=int, required=True,
