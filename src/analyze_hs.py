@@ -14,11 +14,11 @@ OUTPUT_DIR = "../figures/"
 PARAM_CONFIGS = {
     'fixed_dimension': {
         'fixed_dim': 35,
-        'varying_iters': [1e7, 5e7, 1e8]
+        'varying_iters': [10000, 100000, 1000000, 10000000, 100000000]
     },
     'fixed_iteration': {
-        'fixed_iter': 1e8,
-        'varying_dims': [15, 20, 35]
+        'fixed_iter': 100000000,
+        'varying_dims': [4, 8, 16, 32, 64]
     }
 }
 
