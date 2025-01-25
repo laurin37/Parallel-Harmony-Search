@@ -133,6 +133,13 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
                             label=label, linewidth=2)
                     plt.ylabel('Speedup Ratio')
                     plt.title(f'Speedup Comparison ({fixed_label})')
+                    
+                    # Apply log scale for categorical speedup plots
+                    if x_axis_type == 'categorical':
+                        plt.yscale('log', base=2)
+                        plt.gca().yaxis.set_major_formatter(plt.ScalarFormatter())
+                        plt.gca().yaxis.set_minor_formatter(plt.NullFormatter())
+                        
                 else:
                     plt.plot(x_values, param_data['Efficiency'],
                             color=color, marker='s', linestyle='--',
