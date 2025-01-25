@@ -89,65 +89,83 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
     else:
         return
 
-    # Create separate figures for speedup and efficiency
-    for metric in ['speedup', 'efficiency']:
-        plt.figure(figsize=(8, 6))
-        
-        # Plot parameter lines
-        for idx, param_value in enumerate(varying_params):
-            color = COLORS[idx]
-            label = f"{param_value:.0e}" if config_type == 'fixed_dimension' else f"{param_value}"
+    # Create separate figures for different x-axis types
+    for x_axis_type in ['linear', 'categorical']:
+        # Create separate figures for speedup and efficiency
+        for metric in ['speedup', 'efficiency']:
+            plt.figure(figsize=(8, 6))
             
-            # Get baseline
-            baseline = seq_data[
-                (seq_data[param_label.replace('Iterations', 'MaxIter')] == param_value) &
-                (seq_data['ExecutionType'] == 'Sequential')
-            ]['ExecutionTime(s)'].mean()
-            
-            # Get MPI results for this parameter
-            if config_type == 'fixed_dimension':
-                param_data = grouped[grouped['MaxIter'] == param_value]
-            else:
-                param_data = grouped[grouped['Dimensions'] == param_value]
-            
-            # Calculate metrics
-            param_data = param_data.copy()
-            param_data['Speedup'] = baseline / param_data['ExecutionTime(s)']
-            param_data['Efficiency'] = param_data['Speedup'] / param_data['Cores']
-            
-            # Plot the current metric
+            # Plot parameter lines
+            for idx, param_value in enumerate(varying_params):
+                color = COLORS[idx]
+                label = f"{param_value:.0e}" if config_type == 'fixed_dimension' else f"{param_value}"
+                
+                # Get baseline
+                baseline = seq_data[
+                    (seq_data[param_label.replace('Iterations', 'MaxIter')] == param_value) &
+                    (seq_data['ExecutionType'] == 'Sequential')
+                ]['ExecutionTime(s)'].mean()
+                
+                # Get MPI results for this parameter
+                if config_type == 'fixed_dimension':
+                    param_data = grouped[grouped['MaxIter'] == param_value]
+                else:
+                    param_data = grouped[grouped['Dimensions'] == param_value]
+                
+                # Calculate metrics
+                param_data = param_data.copy()
+                param_data['Speedup'] = baseline / param_data['ExecutionTime(s)']
+                param_data['Efficiency'] = param_data['Speedup'] / param_data['Cores']
+                
+                # Handle x-axis type
+                if x_axis_type == 'categorical':
+                    # Create categorical x-values with equal spacing
+                    x_values = np.arange(len(param_data))
+                    xticks = param_data['Cores'].values
+                else:
+                    x_values = param_data['Cores']
+                    xticks = core_values
+                
+                # Plot the current metric
+                if metric == 'speedup':
+                    plt.plot(x_values, param_data['Speedup'], 
+                            color=color, marker='o', linestyle='-', 
+                            label=label, linewidth=2)
+                    plt.ylabel('Speedup Ratio')
+                    plt.title(f'Speedup Comparison ({fixed_label})')
+                else:
+                    plt.plot(x_values, param_data['Efficiency'],
+                            color=color, marker='s', linestyle='--',
+                            label=label, linewidth=2)
+                    plt.ylabel('Parallel Efficiency')
+                    plt.title(f'Efficiency Comparison ({fixed_label})')
+                    plt.ylim(0, 1.2)
+
+            # Add optimal reference lines
             if metric == 'speedup':
-                plt.plot(param_data['Cores'], param_data['Speedup'], 
-                        color=color, marker='o', linestyle='-', 
-                        label=label, linewidth=2)
-                plt.ylabel('Speedup Ratio')
-                plt.title(f'Speedup Comparison ({fixed_label})')
+                if x_axis_type == 'categorical':
+                    opt_x = np.arange(len(core_values))
+                    plt.plot(opt_x, core_values, 'k--', label='Optimal', linewidth=1.5)
+                else:
+                    plt.plot(core_values, core_values, 'k--', label='Optimal', linewidth=1.5)
             else:
-                plt.plot(param_data['Cores'], param_data['Efficiency'],
-                        color=color, marker='s', linestyle='--',
-                        label=label, linewidth=2)
-                plt.ylabel('Parallel Efficiency')
-                plt.title(f'Efficiency Comparison ({fixed_label})')
-                plt.ylim(0, 1.2)
+                plt.axhline(1, color='k', linestyle='--', label='Optimal', linewidth=1.5)
 
-        # Add optimal reference lines
-        if metric == 'speedup':
-            # Ideal linear speedup line
-            plt.plot(core_values, core_values, 'k--', label='Optimal', linewidth=1.5)
-        else:
-            # Perfect efficiency line at 1.0
-            plt.axhline(1, color='k', linestyle='--', label='Optimal', linewidth=1.5)
-
-        plt.xlabel('Number of Cores')
-        plt.grid(True, alpha=0.3)
-        plt.legend(title=param_label)
-        plt.tight_layout()
-        
-        # Save individual files
-        filename = f"{OUTPUT_DIR}/{metric}_{config_type}_{suffix}.svg"
-        plt.savefig(filename, format='svg', bbox_inches='tight')
-        print(f"Saved: {filename}")
-        plt.close()
+            plt.xlabel('Number of Cores')
+            plt.grid(True, alpha=0.3)
+            
+            # Set x-ticks for categorical plots
+            if x_axis_type == 'categorical':
+                plt.xticks(np.arange(len(core_values)), core_values)
+            
+            plt.legend(title=param_label)
+            plt.tight_layout()
+            
+            # Save individual files
+            filename = f"{OUTPUT_DIR}/{metric}_{config_type}_{suffix}_{x_axis_type}.svg"
+            plt.savefig(filename, format='svg', bbox_inches='tight')
+            print(f"Saved: {filename}")
+            plt.close()
         
 def main():
     df = load_and_preprocess(INPUT_CSV)
