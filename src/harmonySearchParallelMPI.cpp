@@ -140,47 +140,90 @@ private:
 };
 
 void HarmonySearch::initializeHarmonyMemory() {
+    // Calculate work distribution
+    int hms_local = hms / numProcs;
+    int remainder = hms % numProcs;
+    std::vector<int> counts(numProcs, hms_local);
+    std::vector<int> displs(numProcs, 0);
+
+    // Handle remainder on root
     if (rank == 0) {
-        harmonyMemory.resize(hms);
-        fitness.resize(hms);
-        for (int i = 0; i < hms; ++i) {
-            harmonyMemory[i] = randomSolution();
-            fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]);
-            if (fitness[i] < bestFitness) {
-                bestFitness = fitness[i];
-                bestSolution = harmonyMemory[i];
-            }
-            if (fitness[i] > worstFitness) {
-                worstFitness = fitness[i];
-                worstIndex = i;
-            }
+        counts[0] += remainder;
+    }
+
+    // Generate local solutions
+    std::vector<Solution> localHM(counts[rank]);
+    std::vector<double> localFitness(counts[rank]);
+    
+    for (int i = 0; i < counts[rank]; ++i) {
+        localHM[i] = randomSolution();
+        localFitness[i] = objectiveFunction.evaluate(localHM[i]);
+    }
+
+    // Prepare buffers for gathering
+    std::vector<double> localHMBuffer;
+    for (const auto& sol : localHM) {
+        localHMBuffer.insert(localHMBuffer.end(), sol.begin(), sol.end());
+    }
+
+    // Calculate displacements and counts for MPI
+    std::vector<int> hm_counts(numProcs);
+    std::vector<int> hm_displs(numProcs);
+    std::vector<int> fit_counts(numProcs);
+    std::vector<int> fit_displs(numProcs);
+
+    if (rank == 0) {
+        int hm_offset = 0;
+        int fit_offset = 0;
+        for (int i = 0; i < numProcs; ++i) {
+            hm_counts[i] = counts[i] * dimensions;
+            hm_displs[i] = hm_offset;
+            hm_offset += hm_counts[i];
+
+            fit_counts[i] = counts[i];
+            fit_displs[i] = fit_offset;
+            fit_offset += fit_counts[i];
         }
     }
 
-    if (numProcs > 1) {
-        MPI_Bcast(&hms, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        if (rank != 0) {
-            harmonyMemory.resize(hms);
-            fitness.resize(hms);
-        }
+    // Gather harmony memory
+    std::vector<double> hmBuffer;
+    std::vector<double> fitnessBuffer;
+    
+    if (rank == 0) {
+        hmBuffer.resize(hms * dimensions);
+        fitnessBuffer.resize(hms);
+    }
 
-        std::vector<double> hmBuffer(hms * dimensions);
-        if (rank == 0) {
-            for (int i = 0; i < hms; ++i) {
-                std::copy(harmonyMemory[i].begin(), harmonyMemory[i].end(), 
-                         hmBuffer.begin() + i * dimensions);
-            }
-        }
+    MPI_Gatherv(localHMBuffer.data(), counts[rank] * dimensions, MPI_DOUBLE,
+               hmBuffer.data(), hm_counts.data(), hm_displs.data(), MPI_DOUBLE,
+               0, MPI_COMM_WORLD);
+
+    MPI_Gatherv(localFitness.data(), counts[rank], MPI_DOUBLE,
+               fitnessBuffer.data(), fit_counts.data(), fit_displs.data(), MPI_DOUBLE,
+               0, MPI_COMM_WORLD);
+
+    // Broadcast full harmony memory
+    if (rank == 0) {
         MPI_Bcast(hmBuffer.data(), hms * dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Bcast(fitness.data(), hms, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-        if (rank != 0) {
-            for (int i = 0; i < hms; ++i) {
-                harmonyMemory[i] = Solution(hmBuffer.begin() + i * dimensions, 
-                                          hmBuffer.begin() + (i+1)*dimensions);
-            }
-        }
+        MPI_Bcast(fitnessBuffer.data(), hms, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    } else {
+        hmBuffer.resize(hms * dimensions);
+        fitnessBuffer.resize(hms);
+        MPI_Bcast(hmBuffer.data(), hms * dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(fitnessBuffer.data(), hms, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
+
+    // Reconstruct harmony memory
+    harmonyMemory.resize(hms);
+    for (int i = 0; i < hms; ++i) {
+        harmonyMemory[i] = Solution(
+            hmBuffer.begin() + i * dimensions,
+            hmBuffer.begin() + (i + 1) * dimensions
+        );
+    }
+    fitness = fitnessBuffer;
+
     recomputeWorstAndBest();
 }
 
