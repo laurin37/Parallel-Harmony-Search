@@ -108,22 +108,10 @@ public:
         : dimensions(dimensions), hms(hms), hmcr(hmcr), par(par), bw(bw), maxIter(maxIter),
           objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed) 
     {
-        if (hms <= 0)
-        {
-            throw std::invalid_argument("Harmony memory size (hms) must be greater than 0.");
-        }
-        if (hmcr < 0.0 || hmcr > 1.0)
-        {
-            throw std::invalid_argument("Harmony memory consideration rate (hmcr) must be in the range [0, 1].");
-        }
-        if (par < 0.0 || par > 1.0)
-        {
-            throw std::invalid_argument("Pitch adjustment rate (par) must be in the range [0, 1].");
-        }
-        if (bw <= 0.0)
-        {
-            throw std::invalid_argument("Bandwidth (bw) must be greater than 0.");
-        }
+        if (hms <= 0) throw std::invalid_argument("Harmony memory size (hms) must be greater than 0.");
+        if (hmcr < 0.0 || hmcr > 1.0) throw std::invalid_argument("HMCR must be in [0, 1].");
+        if (par < 0.0 || par > 1.0) throw std::invalid_argument("PAR must be in [0, 1].");
+        if (bw <= 0.0) throw std::invalid_argument("Bandwidth (bw) must be greater than 0.");
     }
 
     /**
