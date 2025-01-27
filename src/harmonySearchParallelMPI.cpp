@@ -126,34 +126,43 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         initializeHarmonyMemory();
 
-        if (numProcs == 1) {
-            for (int iter = 0; iter < maxIter; ++iter) {
+        if (numProcs == 1) 
+        {
+            for (int iter = 0; iter < maxIter; ++iter) 
+            {
                 Solution newHarmony = generateNewHarmony();
                 double newFitness = objectiveFunction.evaluate(newHarmony);
-                if (newFitness < worstFitness) {
+                if (newFitness < worstFitness) 
+                {
                     replaceWorstHarmony(newHarmony, newFitness);
                     recomputeWorstAndBest();
                 }
             }
-        } else {
+        } 
+        else 
+        {
             int fullBatches = maxIter / BATCH_SIZE;
             int remainingIterations = maxIter % BATCH_SIZE;
 
-            for (int batch = 0; batch < fullBatches; ++batch) {
+            for (int batch = 0; batch < fullBatches; ++batch) 
+            {
                 std::vector<std::pair<double, Solution>> localBest;
 
                 // Generate batch with early filtering
-                for (int i = 0; i < BATCH_SIZE; ++i) {
+                for (int i = 0; i < BATCH_SIZE; ++i) 
+                {
                     Solution newHarmony = generateNewHarmony();
                     double newFitness = objectiveFunction.evaluate(newHarmony);
-                    if (newFitness < worstFitness * 0.95) {
+                    if (newFitness < worstFitness * 0.95) 
+                    {
                         localBest.emplace_back(newFitness, newHarmony);
                     }
                 }
 
                 // Prepare send buffer
                 std::vector<double> sendBuffer;
-                for (const auto& elem : localBest) {
+                for (const auto& elem : localBest) 
+                {
                     sendBuffer.push_back(elem.first);
                     const Solution& harmony = elem.second;
                     sendBuffer.insert(sendBuffer.end(), harmony.begin(), harmony.end());
@@ -166,14 +175,16 @@ public:
 
                 // Convert counts to doubles (each element is dimensions+1 doubles)
                 std::vector<int> recvCountsDoubles(numProcs);
-                for (int i = 0; i < numProcs; ++i) {
+                for (int i = 0; i < numProcs; ++i) 
+                {
                     recvCountsDoubles[i] = recvCounts[i] * (dimensions + 1);
                 }
 
                 // Calculate displacements and total elements
                 std::vector<int> displs(numProcs);
                 int totalElements = 0;
-                for (int i = 0; i < numProcs; ++i) {
+                for (int i = 0; i < numProcs; ++i) 
+                {
                     displs[i] = totalElements;
                     totalElements += recvCountsDoubles[i];
                 }
@@ -188,19 +199,23 @@ public:
             }
 
             // Handle remaining iterations
-            if (remainingIterations > 0) {
+            if (remainingIterations > 0) 
+            {
                 std::vector<std::pair<double, Solution>> localBest;
-                for (int i = 0; i < remainingIterations; ++i) {
+                for (int i = 0; i < remainingIterations; ++i) 
+                {
                     Solution newHarmony = generateNewHarmony();
                     double newFitness = objectiveFunction.evaluate(newHarmony);
-                    if (newFitness < worstFitness * 0.95) {
+                    if (newFitness < worstFitness * 0.95) 
+                    {
                         localBest.emplace_back(newFitness, newHarmony);
                     }
                 }
 
                 // Prepare send buffer
                 std::vector<double> sendBuffer;
-                for (const auto& elem : localBest) {
+                for (const auto& elem : localBest) 
+                {
                     sendBuffer.push_back(elem.first);
                     const Solution& harmony = elem.second;
                     sendBuffer.insert(sendBuffer.end(), harmony.begin(), harmony.end());
@@ -213,14 +228,16 @@ public:
 
                 // Convert counts to doubles
                 std::vector<int> recvCountsDoubles(numProcs);
-                for (int i = 0; i < numProcs; ++i) {
+                for (int i = 0; i < numProcs; ++i) 
+                {
                     recvCountsDoubles[i] = recvCounts[i] * (dimensions + 1);
                 }
 
                 // Calculate displacements and total elements
                 std::vector<int> displs(numProcs);
                 int totalElements = 0;
-                for (int i = 0; i < numProcs; ++i) {
+                for (int i = 0; i < numProcs; ++i) 
+                {
                     displs[i] = totalElements;
                     totalElements += recvCountsDoubles[i];
                 }
@@ -235,7 +252,8 @@ public:
             }
         }
 
-        if (rank == 0) {
+        if (rank == 0) 
+        {
             auto end = std::chrono::high_resolution_clock::now();
             executionTime = std::chrono::duration<double>(end - start).count();
         }
@@ -439,7 +457,8 @@ private:
         std::vector<std::pair<double, Solution>> candidates;
         size_t pos = 0;
         
-        while (pos < totalElements) {
+        while (pos < totalElements) 
+        {
             double fitnessVal = allData[pos++];
             Solution harmony(allData.begin() + pos, allData.begin() + pos + dimensions);
             pos += dimensions;
@@ -447,15 +466,18 @@ private:
         }
 
         std::sort(candidates.begin(), candidates.end(),
-            [](const std::pair<double, Solution>& a, const std::pair<double, Solution>& b) {
+            [](const std::pair<double, Solution>& a, const std::pair<double, Solution>& b) 
+            {
                 return a.first < b.first;
             });
 
         // Replace worst harmonies in bulk
         int replaceCount = std::min(static_cast<int>(candidates.size()), hms);
-        for (int i = 0; i < replaceCount; ++i) {
+        for (int i = 0; i < replaceCount; ++i) 
+        {
             int targetIndex = hms - 1 - i;
-            if (candidates[i].first < fitness[targetIndex]) {
+            if (candidates[i].first < fitness[targetIndex]) 
+            {
                 harmonyMemory[targetIndex] = candidates[i].second;
                 fitness[targetIndex] = candidates[i].first;
             }
