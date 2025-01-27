@@ -63,13 +63,16 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
     
     # Prepare MPI data
     mpi_data = comparison_df[comparison_df['ExecutionType'] == 'MPI']
-    grouped = mpi_data.groupby(['Cores', 'MaxIter', 'Dimensions']).agg({
+    grouped_time = mpi_data.groupby(['Cores', 'MaxIter', 'Dimensions']).agg({
         'ExecutionTime(s)': 'mean'
+    }).reset_index()
+    
+    grouped_fitness = mpi_data.groupby(['Cores', 'MaxIter', 'Dimensions']).agg({
+        'BestFitness': 'mean'
     }).reset_index()
 
     # Get core values for optimal lines
-    core_values = sorted(grouped['Cores'].unique())
-    max_cores = max(core_values) if core_values else 1
+    core_values = sorted(mpi_data['Cores'].unique())
 
     # Determine plot parameters based on config type
     if config_type == 'fixed_dimension':
@@ -89,18 +92,18 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
     else:
         return
 
-    # Create separate figures for different x-axis types
+    # ================================
+    # Execution Time Metrics
+    # ================================
     for x_axis_type in ['linear', 'categorical']:
-        # Create separate figures for speedup and efficiency
         for metric in ['speedup', 'efficiency']:
             plt.figure(figsize=(8, 6))
             
-            # Plot parameter lines
             for idx, param_value in enumerate(varying_params):
                 color = COLORS[idx]
                 label = f"{param_value:.0e}" if config_type == 'fixed_dimension' else f"{param_value}"
                 
-                # Get baseline
+                # Get baseline execution time
                 baseline = seq_data[
                     (seq_data[param_label.replace('Iterations', 'MaxIter')] == param_value) &
                     (seq_data['ExecutionType'] == 'Sequential')
@@ -108,9 +111,9 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
                 
                 # Get MPI results for this parameter
                 if config_type == 'fixed_dimension':
-                    param_data = grouped[grouped['MaxIter'] == param_value]
+                    param_data = grouped_time[grouped_time['MaxIter'] == param_value]
                 else:
-                    param_data = grouped[grouped['Dimensions'] == param_value]
+                    param_data = grouped_time[grouped_time['Dimensions'] == param_value]
                 
                 # Calculate metrics
                 param_data = param_data.copy()
@@ -119,12 +122,9 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
                 
                 # Handle x-axis type
                 if x_axis_type == 'categorical':
-                    # Create categorical x-values with equal spacing
                     x_values = np.arange(len(param_data))
-                    xticks = param_data['Cores'].values
                 else:
                     x_values = param_data['Cores']
-                    xticks = core_values
                 
                 # Plot the current metric
                 if metric == 'speedup':
@@ -134,7 +134,6 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
                     plt.ylabel('Speedup Ratio')
                     plt.title(f'Speedup Comparison ({fixed_label})')
                     
-                    # Apply log scale for categorical speedup plots
                     if x_axis_type == 'categorical':
                         plt.yscale('log', base=2)
                         plt.gca().yaxis.set_major_formatter(plt.ScalarFormatter())
@@ -161,18 +160,66 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
             plt.xlabel('Number of Cores')
             plt.grid(True, alpha=0.3)
             
-            # Set x-ticks for categorical plots
             if x_axis_type == 'categorical':
                 plt.xticks(np.arange(len(core_values)), core_values)
             
             plt.legend(title=param_label)
             plt.tight_layout()
             
-            # Save individual files
             filename = f"{OUTPUT_DIR}/{metric}_{config_type}_{suffix}_{x_axis_type}.svg"
             plt.savefig(filename, format='svg', bbox_inches='tight')
             print(f"Saved: {filename}")
             plt.close()
+
+    # ======================
+    # Fitness Metrics
+    # ======================
+    plt.figure(figsize=(8, 6))
+    
+    for idx, param_value in enumerate(varying_params):
+        color = COLORS[idx]
+        label = f"{param_value:.0e}" if config_type == 'fixed_dimension' else f"{param_value}"
+        
+        # Get sequential baseline fitness
+        if config_type == 'fixed_dimension':
+            seq_mask = (seq_data['Dimensions'] == fixed_param) & (seq_data['MaxIter'] == param_value)
+        else:
+            seq_mask = (seq_data['MaxIter'] == fixed_param) & (seq_data['Dimensions'] == param_value)
+        
+        seq_fitness = seq_data[seq_mask]['BestFitness'].mean()
+        
+        # Get MPI data for this parameter
+        if config_type == 'fixed_dimension':
+            param_data = grouped_fitness[
+                (grouped_fitness['Dimensions'] == fixed_param) &
+                (grouped_fitness['MaxIter'] == param_value)
+            ]
+        else:
+            param_data = grouped_fitness[
+                (grouped_fitness['MaxIter'] == fixed_param) &
+                (grouped_fitness['Dimensions'] == param_value)
+            ]
+        
+        # Plot MPI fitness values
+        plt.plot(param_data['Cores'], param_data['BestFitness'], 
+                 color=color, marker='o', linestyle='-', 
+                 label=label, linewidth=2)
+        
+        # Add horizontal line for sequential baseline
+        plt.axhline(y=seq_fitness, color=color, linestyle='--', 
+                   linewidth=1, alpha=0.7)
+
+    plt.xlabel('Number of Cores')
+    plt.ylabel('Best Fitness')
+    plt.title(f'Best Fitness Comparison ({fixed_label})')
+    plt.legend(title=param_label)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    filename = f"{OUTPUT_DIR}/fitness_{config_type}_{suffix}.svg"
+    plt.savefig(filename, format='svg', bbox_inches='tight')
+    print(f"Saved: {filename}")
+    plt.close()
         
 def main():
     df = load_and_preprocess(INPUT_CSV)
