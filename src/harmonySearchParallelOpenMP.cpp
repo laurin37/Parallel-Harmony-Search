@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <unordered_map>
+#include <omp.h>
 
 /**
  * Clamps a value within the range [min, max].
@@ -172,20 +173,20 @@ private:
         harmonyMemory.resize(hms);
         fitness.resize(hms);
 
-        #pragma omp parallel for num_threads(num_threads)
+        #pragma omp parallel for 
         for (int i = 0; i < hms; ++i) 
         {
             harmonyMemory[i] = randomSolution();  // Must be thread-safe
             fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]);  // Must be thread-safe
         }
-        #pragma omp parallel num_threads(num_threads)
+        #pragma omp parallel 
         {
             double localBestFitness  = std::numeric_limits<double>::infinity();
             double localWorstFitness = -std::numeric_limits<double>::infinity();
             Solution localBestSolution;
             int localWorstIndex = -1;
 
-            #pragma omp for num_threads(num_threads)
+            #pragma omp for 
             for (int i = 0; i < hms; ++i) 
             {
                 if (fitness[i] < localBestFitness) 
@@ -350,6 +351,7 @@ int main(int argc, char* argv[])
     int dimensions = std::stoi(argv[6]);
     unsigned int seed = std::stoul(argv[7]);
     unsigned int num_threads = std::stoul(argv[8]);
+    omp_set_num_threads(num_threads);
 
     try 
     {
