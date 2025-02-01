@@ -554,14 +554,14 @@ int main(int argc, char* argv[]) {
         Solution best = hs.optimize();
 
         if (rank == 0) {
-            std::cout << "\n==================== Run Summary ====================\n"
+            std::cout << "\n==================== MPI Run Start ====================\n"
                       << "Cores: " << numProcs << "\n"
                       << "Dimensions: " << dimensions << "\n"
                       << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n"
                       << "Max Iterations: " << maxIter * numProcs << "\n"
                       << "Execution Time: " << hs.getExecutionTime() << " seconds\n"
                       << "Best fitness: " << hs.getBestFitness() << "\n"
-                      << "=====================================================\n";
+                      << "==================== Run End ======================" << std::endl;
 
             writeResultsToCSV("Parallel-Harmony-Search/data/harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter * numProcs, 
                               hs.getExecutionTime(), numProcs, originalSeed, hs.getBestFitness(), "MPI");
