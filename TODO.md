@@ -13,7 +13,11 @@
 - divide the load on the collector node
     * use split communications -> tree structured or MPI reduce
 - consider multiple problem sizes(lec 13 part-II)
+- compute the speedup and generate plots from expected speedup to the real speedup.
+- strongly or weakly scalable?
 
+# Advanced Improvements
+- Tackle real-world problem with the serial and parallelized algorithm.
 
 # Project Structure
 ## Introduction
