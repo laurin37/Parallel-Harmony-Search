@@ -314,7 +314,7 @@ int main(int argc, char* argv[])
         HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
         Solution best = hs.optimize();
 
-        std::cout << "\n==================== Run Start ====================\n";
+        std::cout << "\n==================== Serial Run Start ====================\n";
         std::cout << "Cores: Serial" << "\n";
         std::cout << "Dimensions: " << dimensions << "\n";
         std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";

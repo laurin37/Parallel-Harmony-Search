@@ -105,9 +105,9 @@ class HarmonySearch
 {
 public:
     HarmonySearch(int dimensions, int hms, double hmcr, double par, double bw, int maxIter, 
-                  const ObjectiveFunctionBase& objFunc, const Solution& lowerBounds, const Solution& upperBounds, unsigned int seed, unsigned int num_threads)
+                  const ObjectiveFunctionBase& objFunc, const Solution& lowerBounds, const Solution& upperBounds, unsigned int seed)
         : dimensions(dimensions), hms(hms), hmcr(hmcr), par(par), bw(bw), maxIter(maxIter),
-          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed), num_threads(num_threads) 
+          objectiveFunction(objFunc), lowerBounds(lowerBounds), upperBounds(upperBounds), rng(seed) 
     {
         if (hms <= 0) throw std::invalid_argument("Harmony memory size (hms) must be greater than 0.");
         if (hmcr < 0.0 || hmcr > 1.0) throw std::invalid_argument("HMCR must be in [0, 1].");
@@ -119,29 +119,72 @@ public:
      * Optimizes the objective function using Harmony Search.
      * @return The best solution found.
      */
-    Solution optimize() 
+    Solution optimize(int num_threads) 
     {
         auto start = std::chrono::high_resolution_clock::now();        
         initializeHarmonyMemory();
+        auto middle = std::chrono::high_resolution_clock::now();  
 
-        for (int iter = 0; iter < maxIter; ++iter) 
+        for (int iter = 0; iter < maxIter / num_threads; ++iter) 
         {
-            Solution newHarmony = generateNewHarmony();
-            double newFitness = objectiveFunction.evaluate(newHarmony);
+            // Generate multiple candidate solutions in parallel
+            int numThreads;
+            std::vector<Solution> candidateHarmonies;
+            std::vector<double> candidateFitness;
 
-            if (newFitness < worstFitness) 
+            #pragma omp parallel
             {
-                replaceWorstHarmony(newHarmony, newFitness);
+                #pragma omp single
+                numThreads = omp_get_num_threads(); // Get number of threads
+
+                // Each thread generates and evaluates its own candidate
+                #pragma omp for
+                for (int i = 0; i < numThreads; ++i) 
+                {
+                    Solution newHarmony = generateNewHarmony();
+                    double newFitness = objectiveFunction.evaluate(newHarmony);
+
+                    // Thread-safe insertion into shared vectors
+                    #pragma omp critical
+                    {
+                        candidateHarmonies.push_back(newHarmony);
+                        candidateFitness.push_back(newFitness);
+                    }
+                }
+            }
+
+            // Find the best candidate from this batch
+            double bestCandidateFitness = candidateFitness[0];
+            int bestCandidateIndex = 0;
+            for (unsigned int i = 1; i < candidateFitness.size(); ++i) 
+            {
+                if (candidateFitness[i] < bestCandidateFitness) 
+                {
+                    bestCandidateFitness = candidateFitness[i];
+                    bestCandidateIndex = i;
+                }
+            }
+
+            // Replace worst harmony if the candidate is better
+            if (bestCandidateFitness < worstFitness) 
+            {
+                replaceWorstHarmony(candidateHarmonies[bestCandidateIndex], bestCandidateFitness);
             }
         }
 
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> duration = end - start;
         executionTime = duration.count();
+        std::chrono::duration<double> durationInit = middle - start;
+        executionTimeInit = durationInit.count();
+        std::chrono::duration<double> durationOpt = end - middle;
+        executionTimeOpt = durationOpt.count();
         return bestSolution;
     }
 
     double getExecutionTime() const { return executionTime; }
+    double getExecutionTimeInit() const { return executionTimeInit; }
+    double getExecutionTimeOpt() const { return executionTimeOpt; }
     double getBestFitness() const { return bestFitness; }
 
 private:
@@ -163,7 +206,8 @@ private:
     double worstFitness = -std::numeric_limits<double>::infinity();
     int worstIndex = 0;
     double executionTime = 0.0;
-    unsigned int num_threads;
+    double executionTimeInit = 0.0;
+    double executionTimeOpt = 0.0;
 
     /**
      * Initializes the Harmony Memory with random solutions and their fitness values.
@@ -173,67 +217,33 @@ private:
         harmonyMemory.resize(hms);
         fitness.resize(hms);
 
-        #pragma omp parallel for 
+        // Parallel loop: Generate solutions and compute fitness.
+        #pragma omp parallel for
         for (int i = 0; i < hms; ++i) 
         {
-            harmonyMemory[i] = randomSolution();  // Must be thread-safe
-            fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]);  // Must be thread-safe
+            harmonyMemory[i] = randomSolution();           // Independent per-index
+            fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]); // Independent
         }
-        #pragma omp parallel 
+
+        // Serial reduction: Find best/worst solutions.
+        bestFitness = fitness[0];
+        worstFitness = fitness[0];
+        bestSolution = harmonyMemory[0];
+        worstIndex = 0;
+
+        for (int i = 1; i < hms; ++i) 
         {
-            double localBestFitness  = std::numeric_limits<double>::infinity();
-            double localWorstFitness = -std::numeric_limits<double>::infinity();
-            Solution localBestSolution;
-            int localWorstIndex = -1;
-
-            #pragma omp for 
-            for (int i = 0; i < hms; ++i) 
+            if (fitness[i] < bestFitness) 
             {
-                if (fitness[i] < localBestFitness) 
-                {
-                    localBestFitness  = fitness[i];
-                    localBestSolution = harmonyMemory[i];
-                }
-                if (fitness[i] > localWorstFitness) 
-                {
-                    localWorstFitness = fitness[i];
-                    localWorstIndex   = i;
-                }
+                bestFitness = fitness[i];
+                bestSolution = harmonyMemory[i];
             }
-
-            // Update global best/worst
-            #pragma omp critical
+            if (fitness[i] > worstFitness) 
             {
-                if (localBestFitness < bestFitness) 
-                {
-                    bestFitness  = localBestFitness;
-                    bestSolution = localBestSolution;
-                }
-                if (localWorstFitness > worstFitness) 
-                {
-                    worstFitness = localWorstFitness;
-                    worstIndex   = localWorstIndex;
-                }
+                worstFitness = fitness[i];
+                worstIndex = i;
             }
         }
-
-        // for (int i = 0; i < hms; ++i) 
-        // {
-        //     // harmonyMemory[i] = randomSolution();
-        //     // fitness[i] = objectiveFunction.evaluate(harmonyMemory[i]);
-
-        //     if (fitness[i] < bestFitness) 
-        //     {
-        //         bestFitness = fitness[i];
-        //         bestSolution = harmonyMemory[i];
-        //     }
-
-        //     if (fitness[i] > worstFitness) 
-        //     {
-        //         worstFitness = fitness[i];
-        //         worstIndex = i;
-        //     }
-        // }
     }
 
     /**
@@ -337,7 +347,7 @@ void writeResultsToCSV(const std::string& filename, int dimensions, int hms, dou
 
 int main(int argc, char* argv[]) 
 {
-    if (argc != 8) 
+    if (argc != 9) 
     {
         std::cerr << "Usage: " << argv[0] << " <hms> <hmcr> <par> <bw> <maxIter> <dimensions> <seed>\n";
         return 1;
@@ -359,20 +369,22 @@ int main(int argc, char* argv[])
         Solution lowerBounds(dimensions, -5.0);
         Solution upperBounds(dimensions, 5.0);
 
-        HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed, num_threads);
-        Solution best = hs.optimize();
+        HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
+        Solution best = hs.optimize(num_threads);
 
-        std::cout << "\n==================== Run Start ====================\n";
-        std::cout << "Cores: Serial" << "\n";
+        std::cout << "\n==================== OpenMP Run Start ====================\n";
+        std::cout << "Cores: " << num_threads << "\n";
         std::cout << "Dimensions: " << dimensions << "\n";
         std::cout << "HMS: " << hms << ", HMCR: " << hmcr << ", PAR: " << par << ", BW: " << bw << "\n";
         std::cout << "Max Iterations: " << maxIter << ", Seed: " << seed << "\n";
+        std::cout << "Execution Time Init: " << hs.getExecutionTimeInit() << " seconds\n";
+        std::cout << "Execution Time Opt: " << hs.getExecutionTimeOpt() << " seconds\n";
         std::cout << "Execution Time: " << hs.getExecutionTime() << " seconds\n";
         std::cout << "Best fitness: " << hs.getBestFitness() << std::endl;
         std::cout << "==================== Run End ======================" << std::endl;
 
         writeResultsToCSV("Parallel-Harmony-Search/data/harmony_search_results.csv", dimensions, hms, hmcr, par, bw, maxIter, hs.getExecutionTime(), 
-                          1, seed, hs.getBestFitness(), "Sequential");
+                          num_threads, seed, hs.getBestFitness(), "OpenMP");
     } 
     catch (const std::invalid_argument& e) 
     {
