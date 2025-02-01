@@ -8,6 +8,10 @@
 - generate pseudocode of parallelized implementation
 
 
+# our todos
+- exclusive job submission for evaluation
+
+
 # Improvements
 - reading user input
 - divide the load on the collector node
