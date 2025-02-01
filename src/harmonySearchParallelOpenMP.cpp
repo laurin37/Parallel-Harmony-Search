@@ -119,13 +119,13 @@ public:
      * Optimizes the objective function using Harmony Search.
      * @return The best solution found.
      */
-    Solution optimize() 
+    Solution optimize(int num_threads) 
     {
         auto start = std::chrono::high_resolution_clock::now();        
         initializeHarmonyMemory();
         auto middle = std::chrono::high_resolution_clock::now();  
 
-        for (int iter = 0; iter < maxIter; ++iter) 
+        for (int iter = 0; iter < maxIter / num_threads; ++iter) 
         {
             // Generate multiple candidate solutions in parallel
             int numThreads;
@@ -370,7 +370,7 @@ int main(int argc, char* argv[])
         Solution upperBounds(dimensions, 5.0);
 
         HarmonySearch hs(dimensions, hms, hmcr, par, bw, maxIter, rosenbrock, lowerBounds, upperBounds, seed);
-        Solution best = hs.optimize();
+        Solution best = hs.optimize(num_threads);
 
         std::cout << "\n==================== OpenMP Run Start ====================\n";
         std::cout << "Cores: " << num_threads << "\n";
