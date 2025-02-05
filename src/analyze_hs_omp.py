@@ -8,7 +8,7 @@ import os
 # ENHANCED CONFIGURATION
 # ========================
 INPUT_CSV = "../data/harmony_search_results.csv"
-OUTPUT_DIR = "../figures/"
+OUTPUT_DIR = "../figures/omp/"
 
 # Parameter combinations to analyze
 PARAM_CONFIGS = {
@@ -166,8 +166,8 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
             plt.legend(title=param_label)
             plt.tight_layout()
             
-            filename = f"{OUTPUT_DIR}/{metric}_{config_type}_{suffix}_{x_axis_type}.svg"
-            plt.savefig(filename, format='svg', bbox_inches='tight')
+            filename = f"{OUTPUT_DIR}/{metric}_{config_type}_{suffix}_{x_axis_type}.pdf"
+            plt.savefig(filename, format='pdf', bbox_inches='tight')
             print(f"Saved: {filename}")
             plt.close()
 
@@ -216,8 +216,8 @@ def plot_comparative_analysis(comparison_df: pd.DataFrame, config_type: str) -> 
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
-    filename = f"{OUTPUT_DIR}/fitness_{config_type}_{suffix}.svg"
-    plt.savefig(filename, format='svg', bbox_inches='tight')
+    filename = f"{OUTPUT_DIR}/fitness_{config_type}_{suffix}.pdf"
+    plt.savefig(filename, format='pdf', bbox_inches='tight')
     print(f"Saved: {filename}")
     plt.close()
         
