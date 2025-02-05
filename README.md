@@ -27,7 +27,12 @@ mpic++ -std=c++11 -g -Wall harmonySearchParallelHybrid.cpp -o hybrid.out
 qsub harmonySearch.sh
 ```
 
-# analyze run
+# analyze run mpi
 ```
 python analyze_hs.py
+```
+
+# analyze run omp
+```
+python analyze_hs_omp.py
 ```
