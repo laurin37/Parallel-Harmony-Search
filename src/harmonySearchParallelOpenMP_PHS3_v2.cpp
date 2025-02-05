@@ -418,9 +418,9 @@ int main(int argc, char* argv[])
                   << "==================================================\n";
 
         // Optional: record to CSV
-        writeResultsToCSV("phs_batched_results.csv", dimensions, hms, hmcr, par, bw,
+        writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw,
                           maxIter, execTime, numThreads, seed,
-                          globalBestFitness, "PHS_Batched");
+                          globalBestFitness, "PHS3_Batched");
     }
     catch (const std::invalid_argument& e)
     {

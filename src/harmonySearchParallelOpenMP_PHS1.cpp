@@ -315,7 +315,7 @@ int main(int argc, char* argv[])
     }
 
     // Read and validate parameters
-    const int hms = std::stoi(argv[1]);
+    const int hms = std::stoi(argv[1])/std::stoi(argv[8]);
     const double hmcr = std::stod(argv[2]);
     const double par = std::stod(argv[3]);
     const double bw = std::stod(argv[4]);
@@ -347,7 +347,7 @@ int main(int argc, char* argv[])
         }
 
         int parallelIterations = 0;
-        const int IK = maxIter / num_threads; 
+        const int IK = 100; 
         
         Solution globalBest;
         double globalBestFitness = std::numeric_limits<double>::infinity();
@@ -364,7 +364,7 @@ int main(int argc, char* argv[])
                 }
 
                 // Parallel execution of iterations
-                #pragma omp for schedule(static) nowait
+                #pragma omp for schedule(static) 
                 for (unsigned int i = 0; i < num_threads; ++i) {
                     harmonies[i].runIterations(currentIK);
                 }

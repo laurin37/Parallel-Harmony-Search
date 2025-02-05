@@ -358,9 +358,9 @@ int main(int argc, char* argv[])
                   << "======================================================\n";
 
         // Write optional CSV
-        writeResultsToCSV("phs3_results.csv", dimensions, hms, hmcr, par, bw,
+        writeResultsToCSV("harmony_search_results.csv", dimensions, hms, hmcr, par, bw,
                           maxIter, executionTime, numThreads, seed,
-                          globalBestFitness, "PHS3");
+                          globalBestFitness, "PHS3_NoComm");
     }
     catch(const std::invalid_argument& e)
     {
